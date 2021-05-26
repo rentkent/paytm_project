@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:paytm/paytm.dart';
 
 import 'package:http/http.dart' as http;
+import 'package:paytm_project/getData.dart';
+import 'package:upi_pay/upi_pay.dart';
 
 class MyHomePage extends StatefulWidget {
   MyHomePage({Key key, this.title}) : super(key: key);
@@ -16,109 +19,93 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool loading = false;
+  bool _isUpiEditable = true;
+  String _upiAddrError;
   TextEditingController controller = TextEditingController();
+  TextEditingController upicontroller = TextEditingController();
+  Future<List<ApplicationMeta>> _appsFuture;
+  @override
+  void initState() {
+    _appsFuture = UpiPay.getInstalledUpiApplications();
+    super.initState();
+  }
 
-  String payment_response = null;
+  String _validateUpiAddress(String value) {
+    if (value.isEmpty) {
+      return 'UPI Address is required.';
+    }
 
-  String website = "DEFAULT";
-  bool testing = false;
+    if (!UpiPay.checkIfUpiAddressIsValid(value)) {
+      return 'UPI Address is invalid.';
+    }
 
-  String mid = "Enter your mid";
-  String mkey = "Enter your mkey";
-  // ignore: non_constant_identifier_names
-  Map<String, dynamic> _response = null;
-  void generateTxnToken(
-    String pay,
-  ) async {
+    return null;
+  }
+
+  Future<void> _onTap(ApplicationMeta app) async {
+    final err = _validateUpiAddress(upicontroller.text);
+    if (err != null) {
+      setState(() {
+        _upiAddrError = err;
+      });
+      return;
+    }
     setState(() {
-      loading = true;
-    });
-    String orderId = DateTime.now().millisecondsSinceEpoch.toString();
-
-    String callBackUrl = (testing
-            ? 'https://securegw-stage.paytm.in'
-            : 'https://securegw.paytm.in') +
-        '/theia/paytmCallback?ORDER_ID=' +
-        orderId;
-
-    var url = Uri.parse(
-        'https://desolate-anchorage-29312.herokuapp.com/generateTxnToken');
-
-    var body = json.encode({
-      "mid": mid,
-      "key_secret": mkey,
-      "website": website,
-      "orderId": orderId,
-      "amount": pay,
-      "callbackUrl": callBackUrl,
-      "custId": "122",
-      // "mode": "1",
-      "testing": testing ? 0 : 1,
+      _upiAddrError = null;
     });
 
     try {
-      final response = await http.post(
-        url,
-        body: body,
-        headers: {'Content-type': "application/json"},
-      );
+      final transactionRef = Random.secure().nextInt(1 << 32).toString();
+      print("Starting transaction with id $transactionRef");
 
-      String txnToken = response.body;
-
-      payment_response = txnToken;
-
-      var paytmResponse =
-          Paytm.payWithPaytm(mid, orderId, txnToken, pay, callBackUrl, testing);
-
-      paytmResponse.then((value) {
-        print(value);
-        if (value['response']['STATUS'] == 'TXN_SUCCESS') {
-          setState(() {
-            loading = false;
-
-            return showDialog(
-                context: context,
-                builder: (BuildContext context) {
-                  return AlertDialog(
-                    title: Text(
-                      'your Payment was successfully received!',
-                      style: TextStyle(
-                        color: Colors.green,
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                        },
-                        child: Text(
-                          'Okay',
-                        ),
-                      ),
-                    ],
-                  );
-                });
-          });
-        } else {
+      await UpiPay.initiateTransaction(
+        app: app.upiApplication,
+        amount: controller.text + ".00",
+        receiverName: "Ashish",
+        receiverUpiAddress: upicontroller.text,
+        transactionRef: transactionRef,
+      ).then((value) {
+        if (value.status == UpiTransactionStatus.success) {
           return showDialog(
               context: context,
               builder: (BuildContext context) {
                 return AlertDialog(
                   title: Text(
-                    'OOps! something went wrong',
-                    style: TextStyle(
-                      color: Colors.red,
-                    ),
+                    'Payment was successfully added!',
+                    style: TextStyle(color: Colors.green),
                   ),
                   actions: [
-                    TextButton(
+                    FlatButton(
                       onPressed: () {
                         Navigator.pop(context);
                       },
                       child: Text(
                         'Okay',
                       ),
+                    )
+                  ],
+                );
+              });
+        } else {
+          return showDialog(
+              context: context,
+              builder: (BuildContext context) {
+                return AlertDialog(
+                  title: Text(
+                    'Oops! Something went wrong.',
+                    style: TextStyle(
+                      color: Colors.red,
                     ),
+                  ),
+                  actions: [
+                    FlatButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                      },
+                      child: Text(
+                        'Okay',
+                      ),
+                    )
                   ],
                 );
               });
@@ -129,24 +116,156 @@ class _MyHomePageState extends State<MyHomePage> {
           context: context,
           builder: (BuildContext context) {
             return AlertDialog(
-              title: Text('Something went wrong'),
+              title: Text(
+                'Oops! Something went wrong.',
+                style: TextStyle(
+                  color: Colors.red,
+                ),
+              ),
               actions: [
-                TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                    child: Text(
-                      'Okay',
-                    )),
+                FlatButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: Text(
+                    'Okay',
+                  ),
+                )
               ],
             );
           });
-    } finally {
-      setState(() {
-        loading = false;
-      });
     }
   }
+
+  // String payment_response = null;
+
+  // String website = "DEFAULT";
+  // bool testing = false;
+
+  // String mid = "UpNKDA70368281575842";
+  // String mkey = "CONALvaAM4vMejWB";
+  // // ignore: non_constant_identifier_names
+  // Map<String, dynamic> _response = null;
+  // void generateTxnToken(
+  //   String pay,
+  // ) async {
+  //   setState(() {
+  //     loading = true;
+  //   });
+  //   String orderId = DateTime.now().millisecondsSinceEpoch.toString();
+
+  //   String callBackUrl = (testing
+  //           ? 'https://securegw-stage.paytm.in'
+  //           : 'https://securegw.paytm.in') +
+  //       '/theia/paytmCallback?ORDER_ID=' +
+  //       orderId;
+
+  //   var url = Uri.parse(
+  //       'https://desolate-anchorage-29312.herokuapp.com/generateTxnToken');
+
+  //   var body = json.encode({
+  //     "mid": mid,
+  //     "key_secret": mkey,
+  //     "website": website,
+  //     "orderId": orderId,
+  //     "amount": pay,
+  //     "callbackUrl": callBackUrl,
+  //     "custId": "122",
+  //     // "mode": "1",
+  //     "testing": testing ? 0 : 1,
+  //   });
+
+  //   try {
+  //     final response = await http.post(
+  //       url,
+  //       body: body,
+  //       headers: {'Content-type': "application/json"},
+  //     );
+
+  //     String txnToken = response.body;
+
+  //     payment_response = txnToken;
+
+  //     var paytmResponse =
+  //         Paytm.payWithPaytm(mid, orderId, txnToken, pay, callBackUrl, testing);
+
+  //     paytmResponse.then((value) {
+  //       print(value);
+  //       if (value['response']['STATUS'] == 'TXN_SUCCESS') {
+  //         setState(() {
+  //           loading = false;
+
+  //           return showDialog(
+  //               context: context,
+  //               builder: (BuildContext context) {
+  //                 return AlertDialog(
+  //                   title: Text(
+  //                     'your Payment was successfully received!',
+  //                     style: TextStyle(
+  //                       color: Colors.green,
+  //                     ),
+  //                   ),
+  //                   actions: [
+  //                     TextButton(
+  //                       onPressed: () {
+  //                         Navigator.pop(context);
+  //                       },
+  //                       child: Text(
+  //                         'Okay',
+  //                       ),
+  //                     ),
+  //                   ],
+  //                 );
+  //               });
+  //         });
+  //       } else {
+  //         return showDialog(
+  //             context: context,
+  //             builder: (BuildContext context) {
+  //               return AlertDialog(
+  //                 title: Text(
+  //                   'OOps! something went wrong',
+  //                   style: TextStyle(
+  //                     color: Colors.red,
+  //                   ),
+  //                 ),
+  //                 actions: [
+  //                   TextButton(
+  //                     onPressed: () {
+  //                       Navigator.pop(context);
+  //                     },
+  //                     child: Text(
+  //                       'Okay',
+  //                     ),
+  //                   ),
+  //                 ],
+  //               );
+  //             });
+  //       }
+  //     });
+  //   } catch (e) {
+  //     return showDialog(
+  //         context: context,
+  //         builder: (BuildContext context) {
+  //           return AlertDialog(
+  //             title: Text('Something went wrong'),
+  //             actions: [
+  //               TextButton(
+  //                   onPressed: () {
+  //                     Navigator.pop(context);
+  //                   },
+  //                   child: Text(
+  //                     'Okay',
+  //                   )),
+  //             ],
+  //           );
+  //         });
+  //   } finally {
+  //     setState(() {
+  //       loading = false;
+  //     });
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -160,10 +279,13 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ),
       ),
-      body: Center(
+      body: SingleChildScrollView(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.1,
+            ),
             Container(
               margin: EdgeInsets.symmetric(
                 horizontal: MediaQuery.of(context).size.width * 0.04,
@@ -209,25 +331,123 @@ class _MyHomePageState extends State<MyHomePage> {
               height: MediaQuery.of(context).size.height * 0.03,
             ),
             Container(
-              child: ElevatedButton(
-                style: ButtonStyle(
-                  backgroundColor: MaterialStateProperty.all(
-                    Colors.pink[800],
+              margin: EdgeInsets.symmetric(
+                horizontal: MediaQuery.of(context).size.width * 0.04,
+              ),
+              child: TextFormField(
+                controller: upicontroller,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      10,
+                    ),
+                    borderSide: BorderSide(
+                      style: BorderStyle.solid,
+                      width: 2,
+                      color: Colors.black,
+                    ),
                   ),
-                  shape: MaterialStateProperty.all(RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  )),
+                  contentPadding: EdgeInsets.symmetric(
+                      vertical: MediaQuery.of(context).size.height * 0.025,
+                      horizontal: MediaQuery.of(context).size.width * 0.05),
+                  focusColor: Color(0xff0962ff),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(color: Colors.black),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(
+                      color: Colors.grey[350],
+                    ),
+                  ),
+                  hintText: 'Enter valid UPI Id of reciever',
                 ),
-                child: Text(
-                  "Proceed Payment",
-                ),
-                onPressed: () {
-                  generateTxnToken(controller.text);
-                  controller.clear();
-                },
               ),
             ),
-            loading ? CircularProgressIndicator() : Container(),
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.1,
+            ),
+            // SizedBox(
+            //   height: MediaQuery.of(context).size.height * 0.03,
+            // ),
+            // Container(
+            //   child: ElevatedButton(
+            //     style: ButtonStyle(
+            //       backgroundColor: MaterialStateProperty.all(
+            //         Colors.pink[800],
+            //       ),
+            //       shape: MaterialStateProperty.all(RoundedRectangleBorder(
+            //         borderRadius: BorderRadius.circular(10),
+            //       )),
+            //     ),
+            //     child: Text(
+            //       "Proceed Payment",
+            //     ),
+            //     onPressed: () {
+            //       // Navigator.push(context,
+            //       //     MaterialPageRoute(builder: (BuildContext context) {
+            //       //   return GetData();
+            //       // }));
+            //       // generateTxnToken(controller.text);
+            //       controller.clear();
+            //     },
+            //   ),
+            // ),
+            // loading ? CircularProgressIndicator() : Container(),
+            FutureBuilder<List<ApplicationMeta>>(
+              future: _appsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return Container();
+                }
+
+                return GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  padding: EdgeInsets.only(
+                    left: 5,
+                    right: 5,
+                  ),
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 1.6,
+                  physics: NeverScrollableScrollPhysics(),
+                  children: snapshot.data
+                      .map((it) => Material(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: BorderSide(
+                                color: Colors.black38,
+                              ),
+                            ),
+                            key: ObjectKey(it.upiApplication),
+                            color: Colors.grey[200],
+                            child: InkWell(
+                              onTap: () => _onTap(it),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: <Widget>[
+                                  Image.memory(
+                                    it.icon,
+                                    width: 64,
+                                    height: 64,
+                                  ),
+                                  Container(
+                                    margin: EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      it.upiApplication.getAppName(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ))
+                      .toList(),
+                );
+              },
+            ),
           ],
         ),
       ),
